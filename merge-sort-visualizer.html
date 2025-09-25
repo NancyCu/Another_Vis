@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Merge Sort Visualizer — Interactive</title>
+
+  <!-- Tailwind (safe from CDN on GitHub Pages) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 UMD + Babel (so we can keep this as one HTML file) -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    html, body {height: 100%; background: #0b0b0f; color: #e5e7eb;}
+    .bar {
+      display: inline-block;
+      width: 18px;
+      margin: 0 2px;
+      border-radius: 4px 4px 0 0;
+      transition: transform .18s ease, height .18s ease, background-color .12s ease;
+    }
+    .monos { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .card { background: #111216; border: 1px solid #22242c; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+    .pill { background: #151823; border: 1px solid #22263a; border-radius: 9999px; }
+    .badge { background: #1b1f2e; border: 1px solid #2a3147; }
+    .accent { color: #67e8f9; }
+    .accent-bg { background: #0d3b66; }
+    .btn { background: #1f2937; border: 1px solid #374151; border-radius: 10px; padding: .6rem .9rem; }
+    .btn:hover { background: #2a364a; }
+    .btn-prim { background: #0ea5e9; border-color: #38bdf8; color: #001018; }
+    .btn-prim:hover { background: #38bdf8; }
+    .btn-warn { background: #ef4444; border-color: #f87171; }
+    .btn-warn:hover { background: #f87171; }
+    .btn-ok { background: #22c55e; border-color: #4ade80; color: #031007; }
+    .btn-ok:hover { background: #4ade80; }
+    .grid-areas {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+    @media (min-width: 1024px) {
+      .grid-areas {
+        grid-template-columns: 380px 1fr;
+      }
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div id="root" class="p-6 lg:p-10"></div>
+
+  <script type="text/babel">
+    const { useEffect, useMemo, useRef, useState } = React;
+
+    // Utility: random array
+    function randomArray(n=20, min=5, max=120) {
+      const arr = Array.from({length:n}, () => Math.floor(Math.random()*(max-min+1) + min));
+      return arr;
+    }
+
+    // Merge sort that records "frames" for visualization
+    function recordMergeSort(arr) {
+      const frames = [];
+      const a = arr.slice();
+
+      function pushFrame(highlight = {}, note = "") {
+        frames.push({
+          array: a.slice(),
+          highlight,
+          note
+        });
+      }
+
+      function merge(l, m, r) {
+        const left = a.slice(l, m + 1);
+        const right = a.slice(m + 1, r + 1);
+        let i = 0, j = 0, k = l;
+
+        // Show subarrays to merge
+        pushFrame({range: [l, r], left: [l, m], right: [m+1, r]}, \`Merging [\${l}, \${m}] and [\${m+1}, \${r}]\`);
+
+        while (i < left.length && j < right.length) {
+          // Comparing
+          pushFrame({compare: [k, (left[i] <= right[j] ? "L" : "R")], leftIndex: l+i, rightIndex: m+1+j, range: [l,r]}, "Compare and place next");
+          if (left[i] <= right[j]) {
+            a[k] = left[i++];
+          } else {
+            a[k] = right[j++];
+          }
+          pushFrame({placed: k, range: [l,r]}, "Placed element");
+          k++;
+        }
+
+        while (i < left.length) {
+          a[k] = left[i++];
+          pushFrame({placed: k, range: [l,r]}, "Draining left");
+          k++;
+        }
+        while (j < right.length) {
+          a[k] = right[j++];
+          pushFrame({placed: k, range: [l,r]}, "Draining right");
+          k++;
+        }
+
+        // Completed merge section
+        pushFrame({doneRange: [l, r]}, \`Merged section [\${l}, \${r}]\`);
+      }
+
+      function sort(l, r) {
+        if (l >= r) {
+          pushFrame({single: l}, "Single element base case");
+          return;
+        }
+        const m = Math.floor((l + r) / 2);
+        pushFrame({split: [l, m, r]}, \`Split [\${l}, \${m}] | [\${m+1}, \${r}]\`);
+        sort(l, m);
+        sort(m + 1, r);
+        merge(l, m, r);
+      }
+
+      sort(0, a.length - 1);
+      return frames;
+    }
+
+    function Bars({array, highlight}) {
+      const max = Math.max(...array, 1);
+      return (
+        <div className="w-full overflow-x-auto p-4 card">
+          <div className="flex items-end justify-center min-h-[220px]">
+            {array.map((v, idx) => {
+              const h = Math.max(8, Math.round((v / max) * 180));
+              let bg = "#6366f1"; // default
+              let scale = 1;
+              if (highlight) {
+                const { placed, single, leftIndex, rightIndex, compare, range, doneRange, left, right } = highlight;
+                if (idx === placed) bg = "#22c55e";         // placed
+                if (idx === single) { bg = "#f59e0b"; scale = 1.05; } // single/base
+                if (compare && compare[0] === idx) bg = "#eab308"; // comparing destination
+                if (leftIndex === idx || rightIndex === idx) bg = "#f97316"; // reading from subarray
+                if (range && idx >= range[0] && idx <= range[1]) bg = "#8b5cf6"; // active range
+                if (doneRange && idx >= doneRange[0] && idx <= doneRange[1]) bg = "#10b981"; // merged range
+              }
+              return (
+                <div
+                  key={idx}
+                  className="bar"
+                  style={{height: h + "px", background: bg, transform: \`scaleY(\${scale})\`}}
+                  title={\`index \${idx} = \${v}\`}
+                ></div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    function useInterval(callback, delay, active) {
+      const savedRef = useRef();
+      useEffect(() => { savedRef.current = callback; }, [callback]);
+      useEffect(() => {
+        if (!active || delay == null) return;
+        const id = setInterval(() => savedRef.current && savedRef.current(), delay);
+        return () => clearInterval(id);
+      }, [delay, active]);
+    }
+
+    function App() {
+      const [raw, setRaw] = useState("12,7,3,1,9,5,2,10");
+      const [arr, setArr] = useState([12,7,3,1,9,5,2,10]);
+      const [frames, setFrames] = useState(() => recordMergeSort(arr));
+      const [idx, setIdx] = useState(0);
+      const [playing, setPlaying] = useState(false);
+      const [delay, setDelay] = useState(420);
+      const [size, setSize] = useState(16);
+
+      const frame = frames[idx] || frames[frames.length - 1] || {array: arr, highlight: {}, note: ""};
+
+      useInterval(() => {
+        setIdx(i => {
+          if (i + 1 >= frames.length) { return i; }
+          return i + 1;
+        });
+      }, delay, playing);
+
+      function parseRawToArray(s) {
+        // Allow comma or space separated numbers
+        const parts = s.split(/[\s,]+/).filter(Boolean);
+        const out = [];
+        for (const p of parts) {
+          const val = Number(p);
+          if (!Number.isFinite(val)) return null;
+          out.push(Math.round(val));
+        }
+        return out;
+      }
+
+      function applyInput() {
+        const parsed = parseRawToArray(raw);
+        if (!parsed || parsed.length === 0) {
+          alert("Give me a real array like: 8,3,5,2  or  10 9 8 7");
+          return;
+        }
+        setArr(parsed);
+        const rec = recordMergeSort(parsed);
+        setFrames(rec);
+        setIdx(0);
+        setPlaying(false);
+      }
+
+      function doRandom() {
+        const a = randomArray(size);
+        setRaw(a.join(","));
+        setArr(a);
+        const rec = recordMergeSort(a);
+        setFrames(rec);
+        setIdx(0);
+        setPlaying(false);
+      }
+
+      function reset() { setIdx(0); setPlaying(false); }
+      function step() { setIdx(i => Math.min(i + 1, frames.length - 1)); }
+      function back() { setIdx(i => Math.max(i - 1, 0)); }
+
+      // Keyboard controls
+      useEffect(() => {
+        function onKey(e) {
+          if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+          if (e.code === "Space") {
+            e.preventDefault();
+            setPlaying(p => !p);
+          } else if (e.key === "ArrowRight") {
+            step();
+          } else if (e.key === "ArrowLeft") {
+            back();
+          } else if (e.key.toLowerCase() === "r") {
+            reset();
+          }
+        }
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+      }, [frames.length]);
+
+      const isDone = idx >= frames.length - 1 && frames.length > 0;
+
+      return (
+        <div className="max-w-7xl mx-auto grid-areas">
+          {/* Left panel */}
+          <section className="space-y-4">
+            <div className="card p-4">
+              <h1 className="text-2xl font-semibold tracking-tight">Merge Sort Visualizer</h1>
+              <p className="text-sm opacity-80 mt-1">Type numbers, hit Build, then play or step through the algorithm. Space to play/pause. ← → to step. R to reset.</p>
+            </div>
+
+            <div className="card p-4 space-y-3">
+              <label className="text-sm opacity-90">Array input</label>
+              <input
+                className="w-full pill px-4 py-2 monos text-cyan-300 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                placeholder="e.g., 12,7,3,1,9,5,2,10"
+                value={raw}
+                onChange={e => setRaw(e.target.value)}
+              />
+              <div className="flex gap-2 flex-wrap pt-2">
+                <button className="btn btn-ok" onClick={applyInput}>Build</button>
+                <button className="btn" onClick={reset}>Reset</button>
+                <button className="btn" onClick={back}>Step ◀︎</button>
+                <button className="btn" onClick={step}>Step ▶︎</button>
+                <button className="btn btn-prim" onClick={() => setPlaying(p => !p)}>{playing ? "Pause" : "Play"}</button>
+                <button className="btn btn-warn" onClick={doRandom}>Random</button>
+              </div>
+
+              <div className="flex items-center gap-3 pt-3">
+                <div className="text-sm w-36 opacity-80">Playback speed</div>
+                <input type="range" min="60" max="900" step="10"
+                  value={delay}
+                  onChange={e => setDelay(Number(e.target.value))}
+                />
+                <div className="text-xs monos opacity-70">{delay} ms</div>
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <div className="text-sm w-36 opacity-80">Random size</div>
+                <input
+                  className="pill px-3 py-1 w-24 text-center monos"
+                  type="number" min="5" max="60"
+                  value={size}
+                  onChange={e => setSize(Math.max(5, Math.min(60, Number(e.target.value)||16)))}
+                />
+              </div>
+            </div>
+
+            <div className="card p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-sm opacity-80">Step</div>
+                <div className="monos">{idx+1} / {Math.max(frames.length, 1)}</div>
+              </div>
+              <div className="mt-2 text-sm badge px-3 py-2 rounded">{frame.note || (isDone ? "Sorted." : "Ready.")}</div>
+              <div className="mt-4">
+                <Bars array={frame.array || arr} highlight={frame.highlight} />
+              </div>
+            </div>
+          </section>
+
+          {/* Right panel: explanation */}
+          <section className="space-y-4">
+            <div className="card p-5">
+              <h2 className="text-xl font-semibold">How this works</h2>
+              <ul className="list-disc pl-6 mt-2 text-sm leading-6 opacity-90">
+                <li><span className="accent">Split:</span> repeatedly divide the array in half until single elements remain.</li>
+                <li><span className="accent">Merge:</span> compare the heads of the two subarrays and build back up in sorted order.</li>
+                <li><span className="accent">Time:</span> O(n log n). <span className="accent">Space:</span> O(n) due to merged copies.</li>
+                <li>Controls: Space to play/pause, Arrow keys to step, R to reset.</li>
+              </ul>
+              <div className="mt-3 text-xs monos opacity-70">
+                Tip: For GitHub Pages, keep this as a single HTML file with UMD scripts. No bundlers, no imports, no drama.
+              </div>
+            </div>
+
+            <div className="card p-5">
+              <h2 className="text-lg font-semibold">Common “Why nothing shows up?” causes</h2>
+              <ol className="list-decimal pl-6 mt-2 text-sm leading-6 opacity-90">
+                <li>Forgot <code className="monos">type="text/babel"</code> on the script that contains JSX.</li>
+                <li>No <code className="monos">&lt;div id="root"&gt;</code> in the body, or React is mounting to the wrong id.</li>
+                <li>Loaded React/ReactDOM after your app code. Load libraries first, then your code.</li>
+                <li>Using ES modules or Vite in Pages without a build step. Use the UMD/Babel approach here to keep it simple.</li>
+                <li>Cross-origin errors from local file URLs. If testing locally, just open with a simple server or keep to this single file.</li>
+              </ol>
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<App />);
+  </script>
+</body>
+</html>
